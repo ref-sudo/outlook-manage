@@ -112,22 +112,22 @@ class handler(BaseHTTPRequestHandler):
 
         record = self._extract_credential_record(form)
         self._save_credential_record(record)
-        suffix = urllib.parse.quote(record["suffix"], safe="")
-        self._redirect(f"/?saved={suffix}")
+        lookup_email = urllib.parse.quote(record["lookup_email"], safe="")
+        self._redirect(f"/?saved={lookup_email}")
 
     def _handle_email_lookup(self, query):
         if not self._request_is_authorized(query):
             self._send_json({"error": "密码错误或未登录"}, 401)
             return
 
-        suffix = self._normalize_suffix(query.get("suffix", [""])[0])
-        if not suffix:
-            self._send_json({"error": "缺少 suffix 参数"}, 400)
+        lookup_email = self._query_email_key(query)
+        if not lookup_email:
+            self._send_json({"error": "缺少 email 参数，必须传完整邮箱"}, 400)
             return
 
-        record = self._load_credential_record(suffix)
+        record = self._load_credential_record(lookup_email)
         if not record:
-            self._send_json({"error": f"未找到后缀为 {suffix} 的凭证"}, 404)
+            self._send_json({"error": f"未找到邮箱 {lookup_email} 的凭证"}, 404)
             return
 
         limit = self._parse_limit(query)
@@ -135,7 +135,7 @@ class handler(BaseHTTPRequestHandler):
         self._send_json(
             {
                 "success": True,
-                "suffix": suffix,
+                "email": lookup_email,
                 "email_address": record["email_address"],
                 "requested_limit": limit,
                 "returned": len(emails),
@@ -148,7 +148,7 @@ class handler(BaseHTTPRequestHandler):
         password_missing = not self._admin_password()
         storage_warning = self._storage_warning()
         error = (query.get("error") or [""])[0]
-        saved = (query.get("saved") or [""])[0]
+        saved = urllib.parse.unquote((query.get("saved") or [""])[0]).strip()
 
         message_html = ""
         if error == "login_failed":
@@ -162,7 +162,7 @@ class handler(BaseHTTPRequestHandler):
             )
         elif saved:
             message_html = self._notice(
-                f"邮箱后缀 {html.escape(saved)} 的凭证已保存。", kind="success"
+                f"邮箱 {html.escape(saved)} 的凭证已保存。", kind="success"
             )
 
         page = f"""<!doctype html>
@@ -282,7 +282,7 @@ class handler(BaseHTTPRequestHandler):
   <main class="panel">
     <div class="eyebrow">Outlook Manage</div>
     <h1>登录后保存邮箱凭证</h1>
-    <p>登录使用你在 Vercel 环境变量里设置的密码。登录成功后可以上传或粘贴邮件凭证，系统会按邮箱后缀保存，后续可直接通过 URL 查询完整邮件内容。</p>
+    <p>登录使用你在 Vercel 环境变量里设置的密码。登录成功后可以上传或粘贴邮件凭证，系统会按完整邮箱保存，后续可直接通过 URL 查询该邮箱的完整邮件内容。</p>
     {message_html}
     {storage_warning}
     <form method="post" action="/api">
@@ -303,14 +303,14 @@ class handler(BaseHTTPRequestHandler):
         self._send_html(page, 200)
 
     def _render_dashboard(self, query):
-        saved_suffix = urllib.parse.unquote((query.get("saved") or [""])[0]).strip()
+        saved_email = urllib.parse.unquote((query.get("saved") or [""])[0]).strip()
         error = (query.get("error") or [""])[0]
         notices = []
 
-        if saved_suffix:
+        if saved_email:
             notices.append(
                 self._notice(
-                    f"凭证保存成功，当前后缀：{html.escape(saved_suffix)}。",
+                    f"凭证保存成功，当前邮箱：{html.escape(saved_email)}。",
                     kind="success",
                 )
             )
@@ -321,8 +321,8 @@ class handler(BaseHTTPRequestHandler):
             )
 
         storage_warning = self._storage_warning()
-        saved_items = self._saved_suffixes()
-        list_html = self._saved_suffix_list_html(saved_items)
+        saved_items = self._saved_emails()
+        list_html = self._saved_email_list_html(saved_items)
         base_lookup_url = self._lookup_base_url()
 
         page = f"""<!doctype html>
@@ -502,8 +502,8 @@ class handler(BaseHTTPRequestHandler):
   <div class="shell">
     <section class="hero">
       <div class="eyebrow">Outlook Manage Console</div>
-      <h1>上传凭证后，直接按邮箱后缀取信</h1>
-      <p class="lead">保存格式兼容你现在已有的文本凭证：<code style="display:inline; margin:0; padding:2px 6px;">邮箱----占位----ClientID----RefreshToken</code>。保存后即可用 <code style="display:inline; margin:0; padding:2px 6px;">suffix</code> 参数查询最新邮件，默认 1 封，也支持 <code style="display:inline; margin:0; padding:2px 6px;">limit</code>、<code style="display:inline; margin:0; padding:2px 6px;">count</code> 或 <code style="display:inline; margin:0; padding:2px 6px;">params</code> 查看多封。</p>
+      <h1>上传凭证后，直接按完整邮箱取信</h1>
+      <p class="lead">保存格式兼容你现在已有的文本凭证：<code style="display:inline; margin:0; padding:2px 6px;">邮箱----占位----ClientID----RefreshToken</code>。保存后即可用 <code style="display:inline; margin:0; padding:2px 6px;">email</code> 参数传完整邮箱查询最新邮件，默认 1 封，也支持 <code style="display:inline; margin:0; padding:2px 6px;">limit</code>、<code style="display:inline; margin:0; padding:2px 6px;">count</code> 或 <code style="display:inline; margin:0; padding:2px 6px;">params</code> 查看多封。</p>
       {''.join(notices)}
       {storage_warning}
       <div class="hero-actions">
@@ -527,7 +527,7 @@ class handler(BaseHTTPRequestHandler):
           <label for="credential_text">或粘贴原始凭证文本</label>
           <textarea id="credential_text" name="credential_text" placeholder="邮箱----占位----ClientID----RefreshToken"></textarea>
 
-          <label for="email_address">邮箱地址（可选，留空时从原始凭证解析）</label>
+          <label for="email_address">完整邮箱地址（可选，留空时从原始凭证解析）</label>
           <input id="email_address" name="email_address" type="text" placeholder="name@outlook.com">
 
           <label for="client_id">Client ID（可选）</label>
@@ -536,26 +536,23 @@ class handler(BaseHTTPRequestHandler):
           <label for="refresh_token">Refresh Token（可选）</label>
           <textarea id="refresh_token" name="refresh_token" placeholder="如果你不想上传文件，也可以直接填在这里"></textarea>
 
-          <label for="suffix">邮箱后缀（可选，默认自动取 @ 后面的部分）</label>
-          <input id="suffix" name="suffix" type="text" placeholder="outlook.com">
-
           <button class="primary" type="submit">保存凭证</button>
         </form>
-        <p class="small">同一个后缀再次保存会覆盖旧凭证。凭证会写入 Vercel Blob 私有存储，不暴露在公开 URL 上。</p>
+        <p class="small">同一个完整邮箱再次保存会覆盖旧凭证。凭证会写入 Vercel Blob 私有存储，不暴露在公开 URL 上。</p>
       </div>
 
       <div class="card">
-        <h2>已保存后缀</h2>
-        <p>这里显示当前已经保存过的邮箱后缀。查询邮件时直接把后缀带到 URL 里即可。</p>
+        <h2>已保存邮箱</h2>
+        <p>这里显示当前已经保存过的完整邮箱。查询邮件时直接把完整邮箱带到 URL 里即可。</p>
         {list_html}
       </div>
 
       <div class="card">
         <h2>调用方式</h2>
         <p>默认返回最新 1 封完整邮件，JSON 中包含标题、主题、发件人、收件人、纯文本正文和 HTML 正文。</p>
-        <code>{html.escape(base_lookup_url)}?password=你的密码&amp;suffix=outlook.com</code>
+        <code>{html.escape(base_lookup_url)}?password=你的密码&amp;email=name@outlook.com</code>
         <p>如果要多取几封，补一个数量参数即可：</p>
-        <code>{html.escape(base_lookup_url)}?password=你的密码&amp;suffix=outlook.com&amp;limit=5</code>
+        <code>{html.escape(base_lookup_url)}?password=你的密码&amp;email=name@outlook.com&amp;limit=5</code>
         <p class="small">出于你的需求我保留了 URL 密码方式，同时也支持登录后的 cookie 访问。若后面你想更安全一点，我们可以再改成 Header 或签名 token。</p>
       </div>
     </section>
@@ -638,12 +635,12 @@ class handler(BaseHTTPRequestHandler):
         if not email_address or not client_id or not refresh_token:
             raise ValueError("凭证不完整，需要邮箱、Client ID 和 Refresh Token")
 
-        suffix = self._normalize_suffix(form.get("suffix") or email_address)
-        if not suffix:
-            raise ValueError("无法识别邮箱后缀，请手动填写 suffix")
+        lookup_email = self._normalize_email_address(email_address)
+        if not lookup_email:
+            raise ValueError("无法识别完整邮箱地址，请检查 email_address")
 
         return {
-            "suffix": suffix,
+            "lookup_email": lookup_email,
             "email_address": email_address,
             "client_id": client_id,
             "refresh_token": refresh_token,
@@ -664,7 +661,7 @@ class handler(BaseHTTPRequestHandler):
 
     def _save_credential_record(self, record):
         self._ensure_storage_ready()
-        pathname = self._credential_path(record["suffix"])
+        pathname = self._credential_path(record["lookup_email"])
         payload = json.dumps(record, ensure_ascii=False).encode("utf-8")
         put(
             pathname,
@@ -676,9 +673,9 @@ class handler(BaseHTTPRequestHandler):
             cache_control_max_age=60,
         )
 
-    def _load_credential_record(self, suffix):
+    def _load_credential_record(self, lookup_email):
         self._ensure_storage_ready()
-        pathname = self._credential_path(suffix)
+        pathname = self._credential_path(lookup_email)
         target = None
         cursor = None
         has_more = True
@@ -700,7 +697,7 @@ class handler(BaseHTTPRequestHandler):
         content = self._download_private_blob(target.url)
         return json.loads(content.decode("utf-8"))
 
-    def _saved_suffixes(self):
+    def _saved_emails(self):
         if self._storage_warning():
             return []
 
@@ -712,19 +709,19 @@ class handler(BaseHTTPRequestHandler):
         while has_more:
             page = list_objects(prefix=self.CREDENTIAL_PREFIX, limit=1000, cursor=cursor)
             for blob in page.blobs:
-                suffix = self._suffix_from_path(blob.pathname)
-                if suffix and suffix not in seen:
-                    seen.add(suffix)
-                    items.append(suffix)
+                lookup_email = self._email_from_path(blob.pathname)
+                if lookup_email and lookup_email not in seen:
+                    seen.add(lookup_email)
+                    items.append(lookup_email)
             has_more = page.has_more
             cursor = page.cursor
 
         return sorted(items)
 
-    def _saved_suffix_list_html(self, items):
+    def _saved_email_list_html(self, items):
         if self._storage_warning():
             return self._notice(
-                "还没连上 Vercel Blob 私有存储，先配置好以后这里才会出现后缀列表。",
+                "还没连上 Vercel Blob 私有存储，先配置好以后这里才会出现邮箱列表。",
                 kind="error",
             )
 
@@ -732,11 +729,11 @@ class handler(BaseHTTPRequestHandler):
             return "<p>还没有保存任何凭证。</p>"
 
         blocks = []
-        for suffix in items:
-            escaped_suffix = html.escape(suffix)
-            url = f"{self._lookup_base_url()}?password=你的密码&suffix={urllib.parse.quote(suffix, safe='')}"
+        for lookup_email in items:
+            escaped_email = html.escape(lookup_email)
+            url = f"{self._lookup_base_url()}?password=你的密码&email={urllib.parse.quote(lookup_email, safe='')}"
             blocks.append(
-                f'<li class="saved-item"><strong>{escaped_suffix}</strong><code>{html.escape(url)}</code></li>'
+                f'<li class="saved-item"><strong>{escaped_email}</strong><code>{html.escape(url)}</code></li>'
             )
         return f'<ul class="saved-list">{"".join(blocks)}</ul>'
 
@@ -892,7 +889,11 @@ class handler(BaseHTTPRequestHandler):
         return urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
 
     def _wants_email_json(self, query):
-        return bool((query.get("suffix") or [""])[0].strip())
+        return bool(self._query_email_key(query))
+
+    def _query_email_key(self, query):
+        candidate = (query.get("email") or [""])[0] or (query.get("suffix") or [""])[0]
+        return self._normalize_email_address(candidate)
 
     def _parse_limit(self, query):
         raw_value = (
@@ -1011,23 +1012,26 @@ class handler(BaseHTTPRequestHandler):
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.read()
 
-    def _credential_path(self, suffix):
-        encoded_suffix = urllib.parse.quote(suffix, safe="")
-        return f"{self.CREDENTIAL_PREFIX}{encoded_suffix}.json"
+    def _credential_path(self, lookup_email):
+        encoded_email = urllib.parse.quote(lookup_email, safe="")
+        return f"{self.CREDENTIAL_PREFIX}{encoded_email}.json"
 
-    def _suffix_from_path(self, pathname):
+    def _email_from_path(self, pathname):
         if not pathname.startswith(self.CREDENTIAL_PREFIX) or not pathname.endswith(".json"):
             return ""
         encoded = pathname[len(self.CREDENTIAL_PREFIX) : -5]
         return urllib.parse.unquote(encoded)
 
-    def _normalize_suffix(self, value):
+    def _normalize_email_address(self, value):
         value = (value or "").strip().lower()
         if not value:
             return ""
-        if "@" in value:
-            value = value.rsplit("@", 1)[-1]
-        return value
+        if value.count("@") != 1:
+            return ""
+        local, domain = value.split("@", 1)
+        if not local or not domain:
+            return ""
+        return f"{local}@{domain}"
 
     def _lookup_base_url(self):
         proto = self.headers.get("X-Forwarded-Proto", "https")
