@@ -177,7 +177,7 @@ class handler(BaseHTTPRequestHandler):
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{title}} - Outlook Manage</title>
+  <title>{title} - Outlook Manage</title>
   <style>
     :root {{
       --primary: #2563eb;
@@ -339,15 +339,16 @@ class handler(BaseHTTPRequestHandler):
     
     iframe {{ width: 100%; border: 1px solid var(--border); border-radius: var(--radius); min-height: 600px; background: white; }}
   </style>
-  {{extra_head}}
+  {extra_head}
 </head>
 <body>
   <div class="container">
-    {{content}}
+    {content}
   </div>
 </body>
 </html>"""
         return page
+
 
     def _render_login_page(self, query):
         password_missing = not self._admin_password()
