@@ -171,163 +171,232 @@ class handler(BaseHTTPRequestHandler):
             200,
         )
 
+    def _render_page(self, title, content, extra_head=""):
+        page = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{title}} - Outlook Manage</title>
+  <style>
+    :root {{
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f9fafb;
+      --card-bg: #ffffff;
+      --text-main: #111827;
+      --text-muted: #4b5563;
+      --border: #e5e7eb;
+      --success-bg: #f0fdf4;
+      --success-text: #166534;
+      --error-bg: #fef2f2;
+      --error-text: #991b1b;
+      --radius: 12px;
+      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+      color: var(--text-main);
+      background-color: var(--bg);
+      line-height: 1.5;
+    }}
+    .container {{
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+    }}
+    .card {{
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }}
+    h1, h2, h3 {{
+      margin-top: 0;
+      color: var(--text-main);
+    }}
+    h1 {{ font-size: 1.875rem; font-weight: 700; margin-bottom: 1.5rem; }}
+    h2 {{ font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }}
+    p {{ margin-bottom: 1rem; color: var(--text-muted); }}
+    
+    .btn {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      border: 1px solid transparent;
+    }}
+    .btn-primary {{
+      background-color: var(--primary);
+      color: white;
+    }}
+    .btn-primary:hover {{
+      background-color: var(--primary-hover);
+    }}
+    .btn-secondary {{
+      background-color: white;
+      border-color: var(--border);
+      color: var(--text-main);
+    }}
+    .btn-secondary:hover {{
+      background-color: var(--bg);
+    }}
+    .btn-block {{ width: 100%; }}
+    .btn-sm {{ padding: 0.25rem 0.5rem; font-size: 0.75rem; }}
+    
+    .form-group {{ margin-bottom: 1rem; }}
+    label {{ display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; color: var(--text-main); }}
+    input[type="text"], input[type="password"], input[type="number"], textarea, select {{
+      width: 100%;
+      padding: 0.625rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }}
+    input:focus, textarea:focus {{ border-color: var(--primary); }}
+    
+    .notice {{
+      padding: 1rem;
+      border-radius: var(--radius);
+      margin-bottom: 1.5rem;
+      font-size: 0.875rem;
+    }}
+    .notice-success {{ background-color: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; }}
+    .notice-error {{ background-color: var(--error-bg); color: var(--error-text); border: 1px solid #fecaca; }}
+    
+    code {{
+      background-color: #f3f4f6;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.875rem;
+      word-break: break-all;
+    }}
+    .code-block {{
+      display: block;
+      padding: 1rem;
+      margin: 0.5rem 0;
+      overflow-x: auto;
+    }}
+    
+    .grid {{ display: grid; grid-template-columns: 1fr; gap: 1.5rem; }}
+    @media (min-width: 768px) {{
+      .grid {{ grid-template-columns: repeat(2, 1fr); }}
+    }}
+    
+    .badge {{
+      display: inline-block;
+      padding: 0.125rem 0.375rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border-radius: 9999px;
+      background-color: #e5e7eb;
+      color: #374151;
+    }}
+    
+    .nav {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }}
+    .nav-brand {{ font-size: 1.25rem; font-weight: 700; color: var(--primary); text-decoration: none; }}
+    
+    .saved-list {{ list-style: none; padding: 0; margin: 0; }}
+    .saved-item {{
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 0;
+    }}
+    .saved-item:last-child {{ border-bottom: none; }}
+    .saved-item-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }}
+    .saved-item-email {{ font-weight: 600; font-size: 0.95rem; }}
+    .actions-row {{ display: flex; gap: 0.5rem; flex-wrap: wrap; }}
+    
+    .mail-list {{ list-style: none; padding: 0; margin: 0; }}
+    .mail-item {{
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      transition: background-color 0.2s;
+    }}
+    .mail-item:hover {{ background-color: #f9fafb; }}
+    .mail-item:last-child {{ border-bottom: none; }}
+    .mail-item-title {{ font-weight: 600; font-size: 1.1rem; margin-bottom: 0.25rem; }}
+    .mail-item-meta {{ font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.5rem; }}
+    .mail-item-preview {{ font-size: 0.875rem; color: #6b7280; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }}
+    
+    .meta-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }}
+    .meta-box {{ background: #f9fafb; padding: 0.75rem; border-radius: var(--radius); border: 1px solid var(--border); }}
+    .meta-label {{ font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 0.25rem; }}
+    .meta-value {{ font-size: 0.875rem; font-weight: 500; word-break: break-all; }}
+    
+    iframe {{ width: 100%; border: 1px solid var(--border); border-radius: var(--radius); min-height: 600px; background: white; }}
+  </style>
+  {{extra_head}}
+</head>
+<body>
+  <div class="container">
+    {{content}}
+  </div>
+</body>
+</html>"""
+        return page
+
     def _render_login_page(self, query):
         password_missing = not self._admin_password()
         storage_warning = self._storage_warning()
         error = (query.get("error") or [""])[0]
         saved = urllib.parse.unquote((query.get("saved") or [""])[0]).strip()
 
-        message_html = ""
+        notices = []
         if error == "login_failed":
-            message_html = self._notice("密码不正确，请重新登录。", kind="error")
+            notices.append(self._notice("密码不正确，请重新登录。", kind="error"))
         elif error == "unauthorized":
-            message_html = self._notice("请先登录后再保存凭证。", kind="error")
+            notices.append(self._notice("请先登录后再保存凭证。", kind="error"))
         elif password_missing:
-            message_html = self._notice(
-                "还没有配置 APP_PASSWORD 或 ADMIN_PASSWORD，先到 Vercel 环境变量里补上。",
-                kind="error",
-            )
+            notices.append(self._notice("还没有配置 APP_PASSWORD 或 ADMIN_PASSWORD，请到 Vercel 环境变量里添加。", kind="error"))
         elif saved:
-            message_html = self._notice(
-                f"邮箱 {html.escape(saved)} 的凭证已保存。", kind="success"
-            )
+            notices.append(self._notice(f"邮箱 {html.escape(saved)} 的凭证已保存。", kind="success"))
 
-        page = f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Outlook 凭证管理</title>
-  <style>
-    :root {{
-      --bg: #f5efe4;
-      --panel: rgba(255,255,255,0.88);
-      --ink: #1d2733;
-      --muted: #5c6876;
-      --accent: #d9653b;
-      --accent-deep: #9f3c18;
-      --line: rgba(29,39,51,0.12);
-      --success: #1f7a52;
-      --error: #b33a3a;
-      --shadow: 0 22px 60px rgba(40, 31, 16, 0.12);
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      min-height: 100vh;
-      font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(217, 101, 59, 0.22), transparent 28%),
-        radial-gradient(circle at right 20%, rgba(37, 104, 184, 0.14), transparent 24%),
-        linear-gradient(135deg, #f7f1e5, #efe6d4 45%, #f6f3eb);
-      display: grid;
-      place-items: center;
-      padding: 24px;
-    }}
-    .panel {{
-      width: min(520px, 100%);
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      box-shadow: var(--shadow);
-      padding: 30px;
-      backdrop-filter: blur(14px);
-    }}
-    .eyebrow {{
-      display: inline-block;
-      font-size: 12px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--accent-deep);
-      margin-bottom: 12px;
-    }}
-    h1 {{
-      margin: 0 0 12px;
-      font-size: clamp(28px, 4vw, 40px);
-      line-height: 1.05;
-    }}
-    p {{
-      margin: 0 0 18px;
-      color: var(--muted);
-      line-height: 1.7;
-    }}
-    label {{
-      display: block;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }}
-    input {{
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 14px 16px;
-      font-size: 15px;
-      background: rgba(255,255,255,0.92);
-    }}
-    button {{
-      width: 100%;
-      border: 0;
-      border-radius: 14px;
-      padding: 14px 16px;
-      font-size: 15px;
-      font-weight: 700;
-      color: white;
-      background: linear-gradient(135deg, var(--accent), var(--accent-deep));
-      cursor: pointer;
-      margin-top: 14px;
-    }}
-    .notice {{
-      border-radius: 14px;
-      padding: 12px 14px;
-      margin-bottom: 18px;
-      font-size: 14px;
-    }}
-    .notice.error {{
-      background: rgba(179, 58, 58, 0.1);
-      color: var(--error);
-    }}
-    .notice.success {{
-      background: rgba(31, 122, 82, 0.1);
-      color: var(--success);
-    }}
-    .tip {{
-      margin-top: 18px;
-      padding-top: 18px;
-      border-top: 1px solid var(--line);
-      font-size: 14px;
-    }}
-    code {{
-      background: rgba(29,39,51,0.06);
-      padding: 2px 6px;
-      border-radius: 8px;
-      word-break: break-all;
-    }}
-  </style>
-</head>
-<body>
-  <main class="panel">
-    <div class="eyebrow">Outlook Manage</div>
-    <h1>登录后保存邮箱凭证</h1>
-    <p>登录使用你在 Vercel 环境变量里设置的密码。登录成功后可以上传或粘贴邮件凭证，系统会按完整邮箱保存，后续可直接通过 URL 查询该邮箱的完整邮件内容。</p>
-    {message_html}
-    {storage_warning}
-    <form method="post" action="/api">
-      <input type="hidden" name="action" value="login">
-      <label for="password">登录密码</label>
-      <input id="password" name="password" type="password" placeholder="输入 APP_PASSWORD 或 ADMIN_PASSWORD" required>
-      <button type="submit">进入管理页</button>
-    </form>
-    <div class="tip">
-      <p>部署前至少需要两个配置：</p>
-      <p><code>APP_PASSWORD</code> 或 <code>ADMIN_PASSWORD</code></p>
-      <p><code>BLOB_READ_WRITE_TOKEN</code>（把 Vercel Blob 私有存储连到项目后会自动生成）</p>
+        content = f"""
+    <div style="max-width: 450px; margin: 5rem auto;">
+      <div class="card" style="padding: 2.5rem;">
+        <div style="text-align: center; margin-bottom: 2rem;">
+          <div style="font-size: 0.875rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem;">Outlook Manage</div>
+          <h1 style="margin-bottom: 0.5rem;">欢迎回来</h1>
+          <p>请登录以管理您的邮件凭证</p>
+        </div>
+        
+        {''.join(notices)}
+        {storage_warning}
+        
+        <form method="post" action="/api">
+          <input type="hidden" name="action" value="login">
+          <div class="form-group">
+            <label for="password">管理密码</label>
+            <input id="password" name="password" type="password" placeholder="输入 APP_PASSWORD 或 ADMIN_PASSWORD" required autofocus>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit" style="height: 3rem; font-size: 1rem;">登录</button>
+        </form>
+        
+        <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border); font-size: 0.8125rem; color: var(--text-muted);">
+          <p style="margin-bottom: 0.5rem;"><strong>配置提示：</strong></p>
+          <ul style="padding-left: 1.25rem; margin: 0;">
+            <li style="margin-bottom: 0.25rem;">需设置 <code>APP_PASSWORD</code> 或 <code>ADMIN_PASSWORD</code></li>
+            <li>需连接 <code>Vercel Blob</code> 存储</li>
+          </ul>
+        </div>
+      </div>
     </div>
-  </main>
-</body>
-</html>"""
-
-        self._send_html(page, 200)
+"""
+        self._send_html(self._render_page("登录", content), 200)
 
     def _render_dashboard(self, query):
         saved_email = urllib.parse.unquote((query.get("saved") or [""])[0]).strip()
@@ -335,17 +404,9 @@ class handler(BaseHTTPRequestHandler):
         notices = []
 
         if saved_email:
-            notices.append(
-                self._notice(
-                    f"凭证保存成功，当前邮箱：{html.escape(saved_email)}。",
-                    kind="success",
-                )
-            )
-
+            notices.append(self._notice(f"凭证保存成功：{html.escape(saved_email)}", kind="success"))
         if error == "storage":
-            notices.append(
-                self._notice("当前未配置 Blob 存储，无法保存凭证。", kind="error")
-            )
+            notices.append(self._notice("当前未配置 Blob 存储，无法保存凭证。", kind="error"))
 
         storage_warning = self._storage_warning()
         saved_items = self._saved_emails()
@@ -353,285 +414,106 @@ class handler(BaseHTTPRequestHandler):
         base_lookup_url = self._lookup_base_url()
         raw_lookup_url = self._raw_lookup_base_url()
         display_password = self._admin_password() or "未配置"
-        encoded_password = urllib.parse.quote(self._admin_password(), safe="") or "你的密码"
         browser_default_email = self._query_email_key(query) or (saved_items[0] if saved_items else "")
 
-        page = f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Outlook 凭证管理台</title>
-  <style>
-    :root {{
-      --bg: #f3efe7;
-      --panel: rgba(255,255,255,0.86);
-      --panel-strong: rgba(255,255,255,0.95);
-      --ink: #1c2430;
-      --muted: #5b6672;
-      --accent: #cd5a2a;
-      --accent-dark: #8f3414;
-      --line: rgba(28, 36, 48, 0.12);
-      --shadow: 0 26px 80px rgba(41, 31, 18, 0.12);
-      --success: #1f7a52;
-      --error: #b33a3a;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(205, 90, 42, 0.24), transparent 22%),
-        radial-gradient(circle at right top, rgba(23, 104, 168, 0.12), transparent 18%),
-        linear-gradient(180deg, #f6f0e3, #f0e8d8 48%, #f8f6f2);
-      min-height: 100vh;
-      padding: 28px 18px 40px;
-    }}
-    .shell {{
-      width: min(1120px, 100%);
-      margin: 0 auto;
-    }}
-    .hero {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 28px;
-      box-shadow: var(--shadow);
-      padding: 26px;
-      backdrop-filter: blur(16px);
-      margin-bottom: 20px;
-    }}
-    .eyebrow {{
-      font-size: 12px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--accent-dark);
-    }}
-    h1 {{
-      margin: 10px 0 12px;
-      font-size: clamp(30px, 5vw, 52px);
-      line-height: 1.02;
-    }}
-    .lead {{
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.75;
-      max-width: 780px;
-    }}
-    .hero-actions {{
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-top: 18px;
-    }}
-    .grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 18px;
-      align-items: start;
-    }}
-    .card {{
-      background: var(--panel-strong);
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      box-shadow: var(--shadow);
-      padding: 22px;
-    }}
-    h2 {{
-      margin: 0 0 12px;
-      font-size: 22px;
-    }}
-    p {{
-      margin: 0 0 14px;
-      color: var(--muted);
-      line-height: 1.7;
-    }}
-    label {{
-      display: block;
-      font-size: 14px;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }}
-    input, textarea {{
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 13px 14px;
-      font-size: 15px;
-      background: rgba(255,255,255,0.95);
-      margin-bottom: 14px;
-    }}
-    textarea {{
-      min-height: 120px;
-      resize: vertical;
-    }}
-    button {{
-      border: 0;
-      border-radius: 14px;
-      padding: 13px 18px;
-      font-size: 15px;
-      font-weight: 700;
-      cursor: pointer;
-    }}
-    .primary {{
-      color: #fff;
-      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-    }}
-    .ghost {{
-      color: var(--ink);
-      background: rgba(28,36,48,0.06);
-    }}
-    .notice {{
-      border-radius: 14px;
-      padding: 12px 14px;
-      margin-bottom: 16px;
-      font-size: 14px;
-    }}
-    .notice.error {{
-      background: rgba(179, 58, 58, 0.1);
-      color: var(--error);
-    }}
-    .notice.success {{
-      background: rgba(31, 122, 82, 0.1);
-      color: var(--success);
-    }}
-    .saved-list {{
-      display: grid;
-      gap: 12px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }}
-    .saved-item {{
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 14px;
-      background: rgba(243,239,231,0.72);
-    }}
-    .action-row {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 10px;
-    }}
-    .chip-link {{
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 92px;
-      text-decoration: none;
-      color: var(--ink);
-      background: rgba(28,36,48,0.06);
-      border-radius: 12px;
-      padding: 10px 12px;
-      font-size: 13px;
-      font-weight: 700;
-    }}
-    code {{
-      display: block;
-      margin-top: 8px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(28,36,48,0.06);
-      overflow-x: auto;
-      word-break: break-all;
-      font-size: 13px;
-    }}
-    .small {{
-      font-size: 13px;
-      color: var(--muted);
-    }}
-    @media (max-width: 720px) {{
-      .hero, .card {{
-        border-radius: 20px;
-      }}
-    }}
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <section class="hero">
-      <div class="eyebrow">Outlook Manage Console</div>
-      <h1>上传凭证后，直接按完整邮箱取信</h1>
-      <p class="lead">保存格式兼容你现在已有的文本凭证：<code style="display:inline; margin:0; padding:2px 6px;">邮箱----占位----ClientID----RefreshToken</code>。保存后即可用 <code style="display:inline; margin:0; padding:2px 6px;">email</code> 参数传完整邮箱查询最新邮件，默认 1 封，也支持 <code style="display:inline; margin:0; padding:2px 6px;">limit</code>、<code style="display:inline; margin:0; padding:2px 6px;">count</code> 或 <code style="display:inline; margin:0; padding:2px 6px;">params</code> 查看多封。</p>
+        content = f"""
+    <nav class="nav">
+      <a href="/" class="nav-brand">Outlook Manage</a>
+      <form method="post" action="/api">
+        <input type="hidden" name="action" value="logout">
+        <button class="btn btn-secondary btn-sm" type="submit">退出登录</button>
+      </form>
+    </nav>
+
+    <header style="margin-bottom: 2rem;">
+      <h1>控制台</h1>
+      <p style="font-size: 1.125rem;">管理您的 Outlook IMAP 凭证并轻松查询邮件内容。</p>
       {''.join(notices)}
       {storage_warning}
-      <div class="hero-actions">
-        <form method="post" action="/api">
-          <input type="hidden" name="action" value="logout">
-          <button class="ghost" type="submit">退出登录</button>
-        </form>
-      </div>
-    </section>
+    </header>
 
-    <section class="grid">
+    <div class="grid">
       <div class="card">
-        <h2>保存邮件凭证</h2>
-        <p>你可以上传 `.txt` 凭证文件，也可以直接粘贴原始内容。如果上传文件和文本都存在，优先使用上传文件。</p>
+        <h2>保存凭证</h2>
+        <p>格式：<code>邮箱----占位----ClientID----RefreshToken</code></p>
         <form method="post" action="/api" enctype="multipart/form-data">
           <input type="hidden" name="action" value="save">
+          
+          <div class="form-group">
+            <label for="credential_file">上传 .txt 文件</label>
+            <input id="credential_file" name="credential_file" type="file" accept=".txt,.text">
+          </div>
+          
+          <div class="form-group">
+            <label for="credential_text">或粘贴原始文本</label>
+            <textarea id="credential_text" name="credential_text" placeholder="邮箱----占位----ClientID----RefreshToken" style="min-height: 80px;"></textarea>
+          </div>
 
-          <label for="credential_file">上传凭证文件</label>
-          <input id="credential_file" name="credential_file" type="file" accept=".txt,.text">
+          <div class="form-group">
+            <label for="email_address">邮箱地址 (可选)</label>
+            <input id="email_address" name="email_address" type="text" placeholder="name@outlook.com">
+          </div>
 
-          <label for="credential_text">或粘贴原始凭证文本</label>
-          <textarea id="credential_text" name="credential_text" placeholder="邮箱----占位----ClientID----RefreshToken"></textarea>
+          <div class="form-group">
+            <label for="client_id">Client ID (可选)</label>
+            <input id="client_id" name="client_id" type="text" placeholder="Azure App Client ID">
+          </div>
 
-          <label for="email_address">完整邮箱地址（可选，留空时从原始凭证解析）</label>
-          <input id="email_address" name="email_address" type="text" placeholder="name@outlook.com">
+          <div class="form-group">
+            <label for="refresh_token">Refresh Token (可选)</label>
+            <textarea id="refresh_token" name="refresh_token" placeholder="如有单独的 Refresh Token 可填于此" style="min-height: 60px;"></textarea>
+          </div>
 
-          <label for="client_id">Client ID（可选）</label>
-          <input id="client_id" name="client_id" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-
-          <label for="refresh_token">Refresh Token（可选）</label>
-          <textarea id="refresh_token" name="refresh_token" placeholder="如果你不想上传文件，也可以直接填在这里"></textarea>
-
-          <button class="primary" type="submit">保存凭证</button>
+          <button class="btn btn-primary btn-block" type="submit">保存凭证</button>
         </form>
-        <p class="small">同一个完整邮箱再次保存会覆盖旧凭证。凭证会写入 Vercel Blob 私有存储，不暴露在公开 URL 上。</p>
       </div>
 
       <div class="card">
         <h2>邮件浏览器</h2>
-        <p>这里是给人直接查看用的。输入完整邮箱后，可以先看到最近几封邮件列表，再点进去渲染 HTML 页面。</p>
+        <p>快速查看指定邮箱的最近邮件列表。</p>
         <form method="get" action="/api">
           <input type="hidden" name="ui" value="browser">
+          
+          <div class="form-group">
+            <label for="browse_email">完整邮箱地址</label>
+            <input id="browse_email" name="email" type="text" value="{html.escape(browser_default_email)}" placeholder="name@outlook.com" required>
+          </div>
 
-          <label for="browse_email">完整邮箱</label>
-          <input id="browse_email" name="email" type="text" value="{html.escape(browser_default_email)}" placeholder="name@outlook.com" required>
+          <div class="form-group">
+            <label for="browse_limit">获取数量</label>
+            <input id="browse_limit" name="limit" type="number" min="1" max="{self.MAX_EMAIL_LIMIT}" value="10">
+          </div>
 
-          <label for="browse_limit">最近几封</label>
-          <input id="browse_limit" name="limit" type="number" min="1" max="{self.MAX_EMAIL_LIMIT}" value="10">
-
-          <button class="primary" type="submit">打开邮件浏览器</button>
+          <button class="btn btn-primary btn-block" type="submit">打开浏览器</button>
         </form>
-        <p class="small">浏览器页面会优先展示标题、发件人、时间和摘要，点“查看 HTML”后进入邮件内容页。</p>
       </div>
 
       <div class="card">
         <h2>已保存邮箱</h2>
-        <p>这里显示当前已经保存过的完整邮箱。查询邮件时直接把完整邮箱带到 URL 里即可。</p>
+        <p>当前存储中的所有邮箱凭证。</p>
         {list_html}
       </div>
 
       <div class="card">
-        <h2>调用方式</h2>
-        <p>当前查询密码：</p>
-        <code>{html.escape(display_password)}</code>
-        <p>默认接口是整理后的 JSON，适合程序直接消费：</p>
-        <code>{html.escape(base_lookup_url)}?password={html.escape(encoded_password)}&amp;email=name@outlook.com</code>
-        <p>如果要多取几封，补一个数量参数即可：</p>
-        <code>{html.escape(base_lookup_url)}?password={html.escape(encoded_password)}&amp;email=name@outlook.com&amp;limit=5</code>
-        <p>如果你想要原始返回，直接走这个端点：</p>
-        <code>{html.escape(raw_lookup_url)}?password={html.escape(encoded_password)}&amp;email=name@outlook.com</code>
-        <p class="small">出于你的需求我保留了 URL 密码方式，同时也支持登录后的 cookie 访问。若后面你想更安全一点，我们可以再改成 Header 或签名 token。</p>
+        <h2>API 快速参考</h2>
+        <div style="font-size: 0.875rem;">
+          <p><strong>查询密码:</strong> <code>{html.escape(display_password)}</code></p>
+          
+          <p><strong>整理后的 JSON:</strong></p>
+          <code class="code-block">{html.escape(base_lookup_url)}?password=...&amp;email=...</code>
+          
+          <p><strong>原始邮件 JSON:</strong></p>
+          <code class="code-block">{html.escape(raw_lookup_url)}?password=...&amp;email=...</code>
+          
+          <div style="margin-top: 1rem;">
+            <span class="badge">提示</span>
+            <span class="small" style="color: var(--text-muted); margin-left: 0.5rem;">支持参数 <code>limit=5</code>, <code>compact=1</code>, <code>raw=1</code>。</span>
+          </div>
+        </div>
       </div>
-    </section>
-  </div>
-</body>
-</html>"""
-
-        self._send_html(page, 200)
+    </div>
+"""
+        self._send_html(self._render_page("控制台", content), 200)
 
     def _render_mailbox_page(self, query):
         if not self._request_is_authorized(query):
@@ -640,196 +522,48 @@ class handler(BaseHTTPRequestHandler):
 
         lookup_email = self._query_email_key(query)
         limit = self._parse_limit(query, default=10)
-        list_html = "<p>先输入一个完整邮箱，再打开最近邮件列表。</p>"
+        list_html = '<div style="text-align: center; padding: 3rem; color: var(--text-muted);"><p>请输入邮箱地址并点击刷新</p></div>'
         notice_html = ""
 
         if lookup_email:
             record = self._load_credential_record(lookup_email)
             if not record:
-                notice_html = self._notice(
-                    f"未找到邮箱 {lookup_email} 的凭证。",
-                    kind="error",
-                )
+                notice_html = self._notice(f"未找到邮箱 {lookup_email} 的凭证。", kind="error")
             else:
-                emails = self._fetch_emails(
-                    record,
-                    limit,
-                    query,
-                    response_mode="processed",
-                    force_compact=True,
-                )
+                emails = self._fetch_emails(record, limit, query, response_mode="processed", force_compact=True)
                 list_html = self._mailbox_list_html(lookup_email, emails, limit)
 
-        page = f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>邮件浏览器</title>
-  <style>
-    :root {{
-      --ink: #1c2430;
-      --muted: #5b6672;
-      --accent: #cd5a2a;
-      --accent-dark: #8f3414;
-      --line: rgba(28, 36, 48, 0.12);
-      --bg: #f6efe3;
-      --panel: rgba(255,255,255,0.92);
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(205, 90, 42, 0.22), transparent 22%),
-        linear-gradient(180deg, #f8f3ea, #f1eadc);
-      min-height: 100vh;
-      padding: 24px 16px 40px;
-    }}
-    .shell {{
-      width: min(1080px, 100%);
-      margin: 0 auto;
-    }}
-    .card {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      padding: 22px;
-      margin-bottom: 18px;
-      box-shadow: 0 22px 60px rgba(41, 31, 18, 0.1);
-    }}
-    h1, h2 {{
-      margin: 0 0 12px;
-    }}
-    p {{
-      margin: 0 0 14px;
-      color: var(--muted);
-      line-height: 1.7;
-    }}
-    form {{
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 140px 180px;
-      gap: 12px;
-      align-items: end;
-    }}
-    label {{
-      display: block;
-      font-size: 14px;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }}
-    input {{
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px 14px;
-      font-size: 15px;
-      background: rgba(255,255,255,0.96);
-    }}
-    button, a.button {{
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 0;
-      border-radius: 14px;
-      padding: 13px 16px;
-      font-size: 15px;
-      font-weight: 700;
-      text-decoration: none;
-      cursor: pointer;
-    }}
-    .primary {{
-      color: #fff;
-      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-    }}
-    .ghost {{
-      color: var(--ink);
-      background: rgba(28,36,48,0.06);
-    }}
-    .mail-list {{
-      display: grid;
-      gap: 12px;
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }}
-    .mail-item {{
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 16px;
-      background: rgba(246, 239, 227, 0.72);
-    }}
-    .mail-item h3 {{
-      margin: 0 0 8px;
-      font-size: 18px;
-    }}
-    .meta {{
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.6;
-    }}
-    .actions {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 12px;
-    }}
-    .notice {{
-      border-radius: 14px;
-      padding: 12px 14px;
-      margin-bottom: 16px;
-      font-size: 14px;
-      background: rgba(179, 58, 58, 0.1);
-      color: #b33a3a;
-    }}
-    code {{
-      display: block;
-      margin-top: 8px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(28,36,48,0.06);
-      word-break: break-all;
-      font-size: 13px;
-    }}
-    @media (max-width: 760px) {{
-      form {{
-        grid-template-columns: 1fr;
-      }}
-    }}
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <section class="card">
+        content = f"""
+    <nav class="nav">
+      <a href="/" class="nav-brand">Outlook Manage</a>
+      <a href="/" class="btn btn-secondary btn-sm">返回管理台</a>
+    </nav>
+
+    <div class="card">
       <h1>邮件浏览器</h1>
-      <p>输入完整邮箱后，可以直接查看最近邮件列表，再点进去打开 HTML 邮件页面。</p>
       {notice_html}
-      <form method="get" action="/api">
+      <form method="get" action="/api" class="grid" style="grid-template-columns: 1fr auto auto; align-items: flex-end;">
         <input type="hidden" name="ui" value="browser">
-        <div>
-          <label for="email">完整邮箱</label>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="email">完整邮箱地址</label>
           <input id="email" name="email" type="text" value="{html.escape(lookup_email)}" placeholder="name@outlook.com" required>
         </div>
-        <div>
-          <label for="limit">最近几封</label>
+        <div class="form-group" style="margin-bottom: 0; width: 100px;">
+          <label for="limit">数量</label>
           <input id="limit" name="limit" type="number" min="1" max="{self.MAX_EMAIL_LIMIT}" value="{limit}">
         </div>
-        <button class="primary" type="submit">刷新列表</button>
+        <button class="btn btn-primary" type="submit" style="height: 42px;">刷新列表</button>
       </form>
-      <div class="actions" style="margin-top:14px;">
-        <a class="button ghost" href="/">返回管理台</a>
-      </div>
-    </section>
+    </div>
 
-    <section class="card">
-      <h2>邮件列表</h2>
+    <div class="card" style="padding: 0; overflow: hidden;">
+      <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);">
+        <h2 style="margin: 0; border: none; padding: 0;">邮件列表</h2>
+      </div>
       {list_html}
-    </section>
-  </div>
-</body>
-</html>"""
-        self._send_html(page, 200)
+    </div>
+"""
+        self._send_html(self._render_page("邮件浏览器", content), 200)
 
     def _render_message_page(self, query):
         if not self._request_is_authorized(query):
@@ -847,169 +581,55 @@ class handler(BaseHTTPRequestHandler):
             self._send_html("<h1>未找到对应邮箱凭证</h1>", 404)
             return
 
-        emails = self._fetch_emails(
-            record,
-            1,
-            query,
-            response_mode="processed",
-            mail_id=requested_mail_id,
-            force_compact=False,
-        )
+        emails = self._fetch_emails(record, 1, query, response_mode="processed", mail_id=requested_mail_id, force_compact=False)
         if not emails:
             self._send_html("<h1>未找到对应邮件</h1>", 404)
             return
 
         email_item = emails[0]
-        iframe_doc = self._message_iframe_document(
-            email_item.get("body_html", ""),
-            email_item.get("body", ""),
-        )
+        iframe_doc = self._message_iframe_document(email_item.get("body_html", ""), email_item.get("body", ""))
         raw_url = self._raw_email_url(lookup_email, requested_mail_id)
         api_url = self._processed_email_url(lookup_email, requested_mail_id)
         browser_url = self._browser_page_url(lookup_email, self._parse_limit(query, default=10))
 
-        page = f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{html.escape(email_item.get("subject") or "邮件详情")}</title>
-  <style>
-    :root {{
-      --ink: #1c2430;
-      --muted: #5b6672;
-      --accent: #cd5a2a;
-      --accent-dark: #8f3414;
-      --line: rgba(28, 36, 48, 0.12);
-      --bg: #f6efe3;
-      --panel: rgba(255,255,255,0.94);
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(205, 90, 42, 0.22), transparent 20%),
-        linear-gradient(180deg, #f8f3ea, #f1eadc);
-      min-height: 100vh;
-      padding: 22px 14px 32px;
-    }}
-    .shell {{
-      width: min(1240px, 100%);
-      margin: 0 auto;
-    }}
-    .card {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      padding: 22px;
-      box-shadow: 0 22px 60px rgba(41, 31, 18, 0.1);
-      margin-bottom: 18px;
-    }}
-    h1 {{
-      margin: 0 0 12px;
-      font-size: clamp(26px, 4vw, 40px);
-      line-height: 1.1;
-    }}
-    p {{
-      margin: 0 0 12px;
-      color: var(--muted);
-      line-height: 1.7;
-    }}
-    .actions {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 16px;
-    }}
-    a.button {{
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 14px;
-      padding: 12px 14px;
-      font-size: 14px;
-      font-weight: 700;
-      text-decoration: none;
-      color: var(--ink);
-      background: rgba(28,36,48,0.06);
-    }}
-    a.button.primary {{
-      color: #fff;
-      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-    }}
-    .meta-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 12px;
-    }}
-    .meta-block {{
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: rgba(246, 239, 227, 0.72);
-    }}
-    .meta-block strong {{
-      display: block;
-      margin-bottom: 6px;
-      font-size: 13px;
-    }}
-    iframe {{
-      width: 100%;
-      min-height: 78vh;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: white;
-    }}
-    code {{
-      display: block;
-      margin-top: 8px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(28,36,48,0.06);
-      word-break: break-all;
-      font-size: 13px;
-    }}
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <section class="card">
-      <h1>{html.escape(email_item.get("subject") or "无标题邮件")}</h1>
-      <p>这里会直接渲染邮件的 HTML 正文。上面保留了原始接口链接，方便你随时切回 JSON 调试。</p>
+        content = f"""
+    <nav class="nav">
+      <a href="/" class="nav-brand">Outlook Manage</a>
+      <div class="actions-row">
+        <a href="{html.escape(browser_url)}" class="btn btn-secondary btn-sm">返回列表</a>
+        <a href="{html.escape(api_url)}" target="_blank" class="btn btn-secondary btn-sm">整理 JSON</a>
+        <a href="{html.escape(raw_url)}" target="_blank" class="btn btn-secondary btn-sm">原始 JSON</a>
+      </div>
+    </nav>
+
+    <div class="card">
+      <h1 style="margin-bottom: 1rem;">{html.escape(email_item.get("subject") or "无标题邮件")}</h1>
+      
       <div class="meta-grid">
-        <div class="meta-block">
-          <strong>发件人</strong>
-          <div>{html.escape(email_item.get("from") or "")}</div>
+        <div class="meta-box">
+          <div class="meta-label">发件人</div>
+          <div class="meta-value">{html.escape(email_item.get("from") or "")}</div>
         </div>
-        <div class="meta-block">
-          <strong>收件人</strong>
-          <div>{html.escape(email_item.get("to") or "")}</div>
+        <div class="meta-box">
+          <div class="meta-label">收件人</div>
+          <div class="meta-value">{html.escape(email_item.get("to") or "")}</div>
         </div>
-        <div class="meta-block">
-          <strong>时间</strong>
-          <div>{html.escape(email_item.get("date") or "")}</div>
+        <div class="meta-box">
+          <div class="meta-label">时间</div>
+          <div class="meta-value">{html.escape(email_item.get("date") or "")}</div>
         </div>
-        <div class="meta-block">
-          <strong>邮件 ID</strong>
-          <div>{html.escape(email_item.get("id") or "")}</div>
+        <div class="meta-box">
+          <div class="meta-label">IMAP ID</div>
+          <div class="meta-value">{html.escape(email_item.get("id") or "")}</div>
         </div>
       </div>
-      <div class="actions">
-        <a class="button" href="{html.escape(browser_url)}">返回邮件列表</a>
-        <a class="button" href="{html.escape(api_url)}" target="_blank" rel="noreferrer">整理后 JSON</a>
-        <a class="button primary" href="{html.escape(raw_url)}" target="_blank" rel="noreferrer">原始 JSON</a>
-      </div>
-      <code>{html.escape(raw_url)}</code>
-    </section>
-    <section class="card">
+    </div>
+
+    <div class="card" style="padding: 0; overflow: hidden;">
       <iframe sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" srcdoc="{html.escape(iframe_doc, quote=True)}"></iframe>
-    </section>
-  </div>
-</body>
-</html>"""
-        self._send_html(page, 200)
+    </div>
+"""
+        self._send_html(self._render_page(email_item.get("subject") or "邮件详情", content), 200)
 
     def _read_body(self):
         content_length = int(self.headers.get("Content-Length", "0") or 0)
@@ -1169,13 +789,10 @@ class handler(BaseHTTPRequestHandler):
 
     def _saved_email_list_html(self, items):
         if self._storage_warning():
-            return self._notice(
-                "还没连上 Vercel Blob 私有存储，先配置好以后这里才会出现邮箱列表。",
-                kind="error",
-            )
+            return self._notice("未连接 Vercel Blob 存储。", kind="error")
 
         if not items:
-            return "<p>还没有保存任何凭证。</p>"
+            return '<p style="padding: 1rem; text-align: center; color: var(--text-muted);">暂无已保存的邮箱</p>'
 
         blocks = []
         for lookup_email in items:
@@ -1183,17 +800,20 @@ class handler(BaseHTTPRequestHandler):
             processed_url = self._processed_email_url(lookup_email)
             raw_url = self._raw_email_url(lookup_email)
             browser_url = self._browser_page_url(lookup_email, 10)
-            blocks.append(
-                f'<li class="saved-item"><strong>{escaped_email}</strong>'
-                f'<div class="action-row">'
-                f'<a class="chip-link" href="{html.escape(browser_url)}">浏览邮件</a>'
-                f'<a class="chip-link" href="{html.escape(processed_url)}" target="_blank" rel="noreferrer">整理 JSON</a>'
-                f'<a class="chip-link" href="{html.escape(raw_url)}" target="_blank" rel="noreferrer">原始 JSON</a>'
-                f"</div>"
-                f'<code>{html.escape(processed_url)}</code>'
-                f'<code>{html.escape(raw_url)}</code>'
-                f"</li>"
-            )
+            blocks.append(f"""
+          <li class="saved-item">
+            <div class="saved-item-header">
+              <span class="saved-item-email">{escaped_email}</span>
+              <div class="actions-row">
+                <a class="btn btn-secondary btn-sm" href="{html.escape(browser_url)}">浏览</a>
+              </div>
+            </div>
+            <div style="margin-top: 0.5rem;">
+              <code style="display: block; font-size: 0.7rem; margin-bottom: 0.25rem;">{html.escape(processed_url)}</code>
+              <code style="display: block; font-size: 0.7rem;">{html.escape(raw_url)}</code>
+            </div>
+          </li>
+""")
         return f'<ul class="saved-list">{"".join(blocks)}</ul>'
 
     def _fetch_emails(
@@ -1782,7 +1402,7 @@ class handler(BaseHTTPRequestHandler):
 
     def _mailbox_list_html(self, lookup_email, emails, limit):
         if not emails:
-            return "<p>这个邮箱里暂时没有查到邮件。</p>"
+            return '<p style="padding: 3rem; text-align: center; color: var(--text-muted);">暂无邮件</p>'
 
         blocks = []
         for item in emails:
@@ -1792,20 +1412,18 @@ class handler(BaseHTTPRequestHandler):
             preview = html.escape(item.get("preview") or "")
             message_url = self._message_page_url(lookup_email, item.get("id", ""), limit)
             processed_url = self._processed_email_url(lookup_email, item.get("id", ""))
-            raw_url = self._raw_email_url(lookup_email, item.get("id", ""))
-            blocks.append(
-                f'<li class="mail-item">'
-                f"<h3>{subject}</h3>"
-                f'<div class="meta">发件人：{from_value}</div>'
-                f'<div class="meta">时间：{date_value}</div>'
-                f"<p>{preview}</p>"
-                f'<div class="actions">'
-                f'<a class="button primary" href="{html.escape(message_url)}">查看 HTML</a>'
-                f'<a class="button ghost" href="{html.escape(processed_url)}" target="_blank" rel="noreferrer">整理 JSON</a>'
-                f'<a class="button ghost" href="{html.escape(raw_url)}" target="_blank" rel="noreferrer">原始 JSON</a>'
-                f"</div>"
-                f"</li>"
-            )
+            blocks.append(f"""
+        <li class="mail-item">
+          <a href="{html.escape(message_url)}" style="text-decoration: none; color: inherit;">
+            <div class="mail-item-title">{subject}</div>
+            <div class="mail-item-meta">{from_value} • {date_value}</div>
+            <p class="mail-item-preview">{preview}</p>
+          </a>
+          <div class="actions-row" style="margin-top: 0.75rem;">
+             <a class="btn btn-secondary btn-sm" style="font-size: 0.7rem; padding: 0.2rem 0.4rem;" href="{html.escape(processed_url)}" target="_blank">JSON</a>
+          </div>
+        </li>
+""")
         return f'<ul class="mail-list">{"".join(blocks)}</ul>'
 
     def _message_iframe_document(self, body_html, fallback_text):
@@ -1827,7 +1445,7 @@ class handler(BaseHTTPRequestHandler):
 
     def _notice(self, text, kind="success"):
         safe_kind = "error" if kind == "error" else "success"
-        return f'<div class="notice {safe_kind}">{html.escape(text)}</div>'
+        return f'<div class="notice notice-{safe_kind}">{html.escape(text)}</div>'
 
     def _redirect(self, location, cookies_to_set=None):
         self.send_response(303)
