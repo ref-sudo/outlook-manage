@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from email.header import decode_header
 from email.parser import BytesParser
 from email.policy import default
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from http import cookies
 from http.server import BaseHTTPRequestHandler
 
@@ -131,7 +132,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         limit = self._parse_limit(query)
-        emails = self._fetch_latest_emails(record, limit)
+        emails = self._fetch_latest_emails(record, limit, query)
         self._send_json(
             {
                 "success": True,
@@ -139,6 +140,7 @@ class handler(BaseHTTPRequestHandler):
                 "email_address": record["email_address"],
                 "requested_limit": limit,
                 "returned": len(emails),
+                "compact": self._query_flag(query, "compact", "simple"),
                 "emails": emails,
             },
             200,
@@ -737,7 +739,9 @@ class handler(BaseHTTPRequestHandler):
             )
         return f'<ul class="saved-list">{"".join(blocks)}</ul>'
 
-    def _fetch_latest_emails(self, record, limit):
+    def _fetch_latest_emails(self, record, limit, query):
+        compact = self._query_flag(query, "compact", "simple")
+        include_raw = self._query_flag(query, "raw", "include_raw")
         access_token = self._exchange_access_token(record)
         ssl_context = ssl._create_unverified_context()
         mail = imaplib.IMAP4_SSL(self.IMAP_HOST, self.IMAP_PORT, ssl_context=ssl_context)
@@ -767,22 +771,45 @@ class handler(BaseHTTPRequestHandler):
 
                 raw_email = data[0][1]
                 message = email.message_from_bytes(raw_email)
-                body_text, body_html = self._extract_message_bodies(message)
+                raw_body_text, body_html = self._extract_message_bodies(message)
+                body_text = self._preferred_body_text(raw_body_text, body_html)
                 subject = self._decode_mime_header(message.get("Subject"))
+                raw_from = self._decode_mime_header(message.get("From"))
+                raw_to = self._decode_mime_header(message.get("To"))
+                raw_cc = self._decode_mime_header(message.get("Cc"))
+                from_entry = self._parse_address_header(raw_from)
+                to_list = self._parse_address_list(raw_to)
+                cc_list = self._parse_address_list(raw_cc)
 
-                results.append(
-                    {
-                        "id": num.decode("utf-8", errors="ignore"),
-                        "date": message.get("Date"),
-                        "from": self._decode_mime_header(message.get("From")),
-                        "to": self._decode_mime_header(message.get("To")),
-                        "cc": self._decode_mime_header(message.get("Cc")),
-                        "title": subject,
-                        "subject": subject,
-                        "body_text": body_text,
-                        "body_html": body_html,
-                    }
-                )
+                email_item = {
+                    "id": num.decode("utf-8", errors="ignore"),
+                    "message_id": message.get("Message-ID", ""),
+                    "date": message.get("Date"),
+                    "date_iso": self._date_to_iso(message.get("Date")),
+                    "from": raw_from,
+                    "from_name": from_entry["name"],
+                    "from_email": from_entry["email"],
+                    "to": raw_to,
+                    "to_list": to_list,
+                    "cc": raw_cc,
+                    "cc_list": cc_list,
+                    "title": subject,
+                    "subject": subject,
+                    "preview": self._preview_text(body_text),
+                    "body": body_text,
+                    "body_text": body_text,
+                    "has_html": bool(body_html),
+                }
+
+                if not compact:
+                    email_item["body_html"] = body_html
+
+                if include_raw:
+                    email_item["body_text_raw"] = raw_body_text
+                    if compact:
+                        email_item["body_html_raw"] = body_html
+
+                results.append(email_item)
 
             return results
         finally:
@@ -848,6 +875,13 @@ class handler(BaseHTTPRequestHandler):
 
         return body_text, body_html
 
+    def _preferred_body_text(self, raw_text, raw_html):
+        html_text = self._clean_plain_text(self._strip_html(raw_html)) if raw_html else ""
+        plain_text = self._clean_plain_text(raw_text)
+        if html_text:
+            return html_text
+        return plain_text
+
     def _decode_mime_header(self, value):
         if not value:
             return ""
@@ -877,7 +911,21 @@ class handler(BaseHTTPRequestHandler):
         return data.decode("utf-8", errors="ignore")
 
     def _strip_html(self, content):
-        cleaned = re.sub(r"<(script|style).*?>.*?</\1>", "", content, flags=re.I | re.S)
+        def _anchor_to_text(match):
+            href = html.unescape(match.group(1).strip())
+            label = re.sub(r"<[^>]+>", "", match.group(2))
+            label = html.unescape(label).strip()
+            if label and label != href:
+                return f"{label} ({href})"
+            return href
+
+        cleaned = re.sub(
+            r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+            _anchor_to_text,
+            content,
+            flags=re.I | re.S,
+        )
+        cleaned = re.sub(r"<(script|style).*?>.*?</\1>", "", cleaned, flags=re.I | re.S)
         cleaned = re.sub(r"<br\s*/?>", "\n", cleaned, flags=re.I)
         cleaned = re.sub(r"</p\s*>", "\n\n", cleaned, flags=re.I)
         cleaned = re.sub(r"<[^>]+>", "", cleaned)
@@ -918,6 +966,134 @@ class handler(BaseHTTPRequestHandler):
             or self.headers.get("X-Password", "")
         )
         return self._password_matches(password) or self._is_authenticated()
+
+    def _query_flag(self, query, *names):
+        truthy = {"1", "true", "yes", "on"}
+        return any((query.get(name) or [""])[0].strip().lower() in truthy for name in names)
+
+    def _parse_address_header(self, raw_value):
+        decoded = self._decode_mime_header(raw_value)
+        name, email_address = parseaddr(decoded)
+        return {
+            "name": self._decode_mime_header(name).strip(),
+            "email": email_address.strip(),
+        }
+
+    def _parse_address_list(self, raw_value):
+        decoded = self._decode_mime_header(raw_value)
+        items = []
+        for name, email_address in getaddresses([decoded]):
+            if not name and not email_address:
+                continue
+            items.append(
+                {
+                    "name": self._decode_mime_header(name).strip(),
+                    "email": email_address.strip(),
+                }
+            )
+        return items
+
+    def _date_to_iso(self, value):
+        if not value:
+            return ""
+        try:
+            parsed = parsedate_to_datetime(value)
+            if parsed and parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).isoformat()
+        except Exception:
+            return ""
+
+    def _preview_text(self, value, limit=200):
+        value = (value or "").strip()
+        if len(value) <= limit:
+            return value
+        return value[: limit - 3].rstrip() + "..."
+
+    def _clean_plain_text(self, value):
+        value = (value or "").replace("\r\n", "\n").replace("\r", "\n")
+        filtered_lines = []
+        in_css_block = False
+
+        for raw_line in value.split("\n"):
+            line = raw_line.strip()
+            if not line:
+                if filtered_lines and filtered_lines[-1] != "":
+                    filtered_lines.append("")
+                continue
+
+            lower = line.lower()
+
+            if in_css_block:
+                if "}" in line:
+                    in_css_block = False
+                continue
+
+            if self._looks_like_css_selector(line):
+                in_css_block = True
+                continue
+
+            if self._looks_like_css_property(lower):
+                continue
+
+            filtered_lines.append(line)
+
+        cleaned = "\n".join(filtered_lines)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
+
+    def _looks_like_css_selector(self, value):
+        if not value.endswith("{"):
+            return False
+        selector = value[:-1].strip().lower()
+        if not selector:
+            return False
+        selector_prefixes = (
+            ".",
+            "#",
+            "p",
+            "a",
+            "body",
+            "div",
+            "span",
+            "img",
+            "table",
+            "td",
+            "th",
+            "tr",
+            "h1",
+            "h2",
+            "h3",
+            "pre",
+            "ul",
+            "ol",
+            "li",
+            "strong",
+            "code",
+        )
+        return selector.startswith(selector_prefixes) or "," in selector
+
+    def _looks_like_css_property(self, value):
+        css_prefixes = (
+            "color:",
+            "font-",
+            "line-height:",
+            "padding:",
+            "margin:",
+            "border",
+            "background",
+            "word-break:",
+            "overflow",
+            "text-",
+            "display:",
+            "width:",
+            "height:",
+            "max-width:",
+            "min-width:",
+            "border-radius:",
+            "letter-spacing:",
+        )
+        return value.startswith(css_prefixes)
 
     def _password_matches(self, submitted):
         expected = self._admin_password()
