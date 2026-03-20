@@ -326,6 +326,8 @@ class handler(BaseHTTPRequestHandler):
         saved_items = self._saved_emails()
         list_html = self._saved_email_list_html(saved_items)
         base_lookup_url = self._lookup_base_url()
+        display_password = self._admin_password() or "未配置"
+        encoded_password = urllib.parse.quote(self._admin_password(), safe="") or "你的密码"
 
         page = f"""<!doctype html>
 <html lang="zh-CN">
@@ -551,10 +553,12 @@ class handler(BaseHTTPRequestHandler):
 
       <div class="card">
         <h2>调用方式</h2>
+        <p>当前查询密码：</p>
+        <code>{html.escape(display_password)}</code>
         <p>默认返回最新 1 封完整邮件，JSON 中包含标题、主题、发件人、收件人、纯文本正文和 HTML 正文。</p>
-        <code>{html.escape(base_lookup_url)}?password=你的密码&amp;email=name@outlook.com</code>
+        <code>{html.escape(base_lookup_url)}?password={html.escape(encoded_password)}&amp;email=name@outlook.com</code>
         <p>如果要多取几封，补一个数量参数即可：</p>
-        <code>{html.escape(base_lookup_url)}?password=你的密码&amp;email=name@outlook.com&amp;limit=5</code>
+        <code>{html.escape(base_lookup_url)}?password={html.escape(encoded_password)}&amp;email=name@outlook.com&amp;limit=5</code>
         <p class="small">出于你的需求我保留了 URL 密码方式，同时也支持登录后的 cookie 访问。若后面你想更安全一点，我们可以再改成 Header 或签名 token。</p>
       </div>
     </section>
@@ -731,9 +735,10 @@ class handler(BaseHTTPRequestHandler):
             return "<p>还没有保存任何凭证。</p>"
 
         blocks = []
+        encoded_password = urllib.parse.quote(self._admin_password(), safe="") or "你的密码"
         for lookup_email in items:
             escaped_email = html.escape(lookup_email)
-            url = f"{self._lookup_base_url()}?password=你的密码&email={urllib.parse.quote(lookup_email, safe='')}"
+            url = f"{self._lookup_base_url()}?password={encoded_password}&email={urllib.parse.quote(lookup_email, safe='')}"
             blocks.append(
                 f'<li class="saved-item"><strong>{escaped_email}</strong><code>{html.escape(url)}</code></li>'
             )
