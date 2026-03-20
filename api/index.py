@@ -37,6 +37,14 @@ class handler(BaseHTTPRequestHandler):
         try:
             query = self._query()
 
+            if self._wants_mailbox_page(query):
+                self._render_mailbox_page(query)
+                return
+
+            if self._wants_message_page(query):
+                self._render_message_page(query)
+                return
+
             if self._wants_email_json(query):
                 self._handle_email_lookup(query)
                 return
@@ -116,7 +124,7 @@ class handler(BaseHTTPRequestHandler):
         lookup_email = urllib.parse.quote(record["lookup_email"], safe="")
         self._redirect(f"/?saved={lookup_email}")
 
-    def _handle_email_lookup(self, query):
+    def _handle_email_lookup(self, query, response_mode="processed"):
         if not self._request_is_authorized(query):
             self._send_json({"error": "密码错误或未登录"}, 401)
             return
@@ -131,8 +139,23 @@ class handler(BaseHTTPRequestHandler):
             self._send_json({"error": f"未找到邮箱 {lookup_email} 的凭证"}, 404)
             return
 
-        limit = self._parse_limit(query)
-        emails = self._fetch_latest_emails(record, limit, query)
+        requested_mail_id = self._query_mail_id(query)
+        if requested_mail_id:
+            emails = self._fetch_emails(
+                record,
+                1,
+                query,
+                response_mode=response_mode,
+                mail_id=requested_mail_id,
+            )
+            if not emails:
+                self._send_json({"error": f"未找到邮件 id={requested_mail_id}"}, 404)
+                return
+            limit = 1
+        else:
+            limit = self._parse_limit(query)
+            emails = self._fetch_emails(record, limit, query, response_mode=response_mode)
+
         self._send_json(
             {
                 "success": True,
@@ -140,6 +163,8 @@ class handler(BaseHTTPRequestHandler):
                 "email_address": record["email_address"],
                 "requested_limit": limit,
                 "returned": len(emails),
+                "mode": response_mode,
+                "mail_id": requested_mail_id,
                 "compact": self._query_flag(query, "compact", "simple"),
                 "emails": emails,
             },
@@ -326,8 +351,10 @@ class handler(BaseHTTPRequestHandler):
         saved_items = self._saved_emails()
         list_html = self._saved_email_list_html(saved_items)
         base_lookup_url = self._lookup_base_url()
+        raw_lookup_url = self._raw_lookup_base_url()
         display_password = self._admin_password() or "未配置"
         encoded_password = urllib.parse.quote(self._admin_password(), safe="") or "你的密码"
+        browser_default_email = self._query_email_key(query) or (saved_items[0] if saved_items else "")
 
         page = f"""<!doctype html>
 <html lang="zh-CN">
@@ -481,6 +508,25 @@ class handler(BaseHTTPRequestHandler):
       padding: 14px;
       background: rgba(243,239,231,0.72);
     }}
+    .action-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }}
+    .chip-link {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 92px;
+      text-decoration: none;
+      color: var(--ink);
+      background: rgba(28,36,48,0.06);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }}
     code {{
       display: block;
       margin-top: 8px;
@@ -546,6 +592,23 @@ class handler(BaseHTTPRequestHandler):
       </div>
 
       <div class="card">
+        <h2>邮件浏览器</h2>
+        <p>这里是给人直接查看用的。输入完整邮箱后，可以先看到最近几封邮件列表，再点进去渲染 HTML 页面。</p>
+        <form method="get" action="/api">
+          <input type="hidden" name="ui" value="browser">
+
+          <label for="browse_email">完整邮箱</label>
+          <input id="browse_email" name="email" type="text" value="{html.escape(browser_default_email)}" placeholder="name@outlook.com" required>
+
+          <label for="browse_limit">最近几封</label>
+          <input id="browse_limit" name="limit" type="number" min="1" max="{self.MAX_EMAIL_LIMIT}" value="10">
+
+          <button class="primary" type="submit">打开邮件浏览器</button>
+        </form>
+        <p class="small">浏览器页面会优先展示标题、发件人、时间和摘要，点“查看 HTML”后进入邮件内容页。</p>
+      </div>
+
+      <div class="card">
         <h2>已保存邮箱</h2>
         <p>这里显示当前已经保存过的完整邮箱。查询邮件时直接把完整邮箱带到 URL 里即可。</p>
         {list_html}
@@ -555,10 +618,12 @@ class handler(BaseHTTPRequestHandler):
         <h2>调用方式</h2>
         <p>当前查询密码：</p>
         <code>{html.escape(display_password)}</code>
-        <p>默认返回最新 1 封完整邮件，JSON 中包含标题、主题、发件人、收件人、纯文本正文和 HTML 正文。</p>
+        <p>默认接口是整理后的 JSON，适合程序直接消费：</p>
         <code>{html.escape(base_lookup_url)}?password={html.escape(encoded_password)}&amp;email=name@outlook.com</code>
         <p>如果要多取几封，补一个数量参数即可：</p>
         <code>{html.escape(base_lookup_url)}?password={html.escape(encoded_password)}&amp;email=name@outlook.com&amp;limit=5</code>
+        <p>如果你想要原始返回，直接走这个端点：</p>
+        <code>{html.escape(raw_lookup_url)}?password={html.escape(encoded_password)}&amp;email=name@outlook.com</code>
         <p class="small">出于你的需求我保留了 URL 密码方式，同时也支持登录后的 cookie 访问。若后面你想更安全一点，我们可以再改成 Header 或签名 token。</p>
       </div>
     </section>
@@ -566,6 +631,384 @@ class handler(BaseHTTPRequestHandler):
 </body>
 </html>"""
 
+        self._send_html(page, 200)
+
+    def _render_mailbox_page(self, query):
+        if not self._request_is_authorized(query):
+            self._redirect("/?error=unauthorized")
+            return
+
+        lookup_email = self._query_email_key(query)
+        limit = self._parse_limit(query, default=10)
+        list_html = "<p>先输入一个完整邮箱，再打开最近邮件列表。</p>"
+        notice_html = ""
+
+        if lookup_email:
+            record = self._load_credential_record(lookup_email)
+            if not record:
+                notice_html = self._notice(
+                    f"未找到邮箱 {lookup_email} 的凭证。",
+                    kind="error",
+                )
+            else:
+                emails = self._fetch_emails(
+                    record,
+                    limit,
+                    query,
+                    response_mode="processed",
+                    force_compact=True,
+                )
+                list_html = self._mailbox_list_html(lookup_email, emails, limit)
+
+        page = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>邮件浏览器</title>
+  <style>
+    :root {{
+      --ink: #1c2430;
+      --muted: #5b6672;
+      --accent: #cd5a2a;
+      --accent-dark: #8f3414;
+      --line: rgba(28, 36, 48, 0.12);
+      --bg: #f6efe3;
+      --panel: rgba(255,255,255,0.92);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(205, 90, 42, 0.22), transparent 22%),
+        linear-gradient(180deg, #f8f3ea, #f1eadc);
+      min-height: 100vh;
+      padding: 24px 16px 40px;
+    }}
+    .shell {{
+      width: min(1080px, 100%);
+      margin: 0 auto;
+    }}
+    .card {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 22px;
+      margin-bottom: 18px;
+      box-shadow: 0 22px 60px rgba(41, 31, 18, 0.1);
+    }}
+    h1, h2 {{
+      margin: 0 0 12px;
+    }}
+    p {{
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.7;
+    }}
+    form {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 140px 180px;
+      gap: 12px;
+      align-items: end;
+    }}
+    label {{
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }}
+    input {{
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 15px;
+      background: rgba(255,255,255,0.96);
+    }}
+    button, a.button {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 16px;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }}
+    .primary {{
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+    }}
+    .ghost {{
+      color: var(--ink);
+      background: rgba(28,36,48,0.06);
+    }}
+    .mail-list {{
+      display: grid;
+      gap: 12px;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }}
+    .mail-item {{
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      background: rgba(246, 239, 227, 0.72);
+    }}
+    .mail-item h3 {{
+      margin: 0 0 8px;
+      font-size: 18px;
+    }}
+    .meta {{
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }}
+    .actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }}
+    .notice {{
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      background: rgba(179, 58, 58, 0.1);
+      color: #b33a3a;
+    }}
+    code {{
+      display: block;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(28,36,48,0.06);
+      word-break: break-all;
+      font-size: 13px;
+    }}
+    @media (max-width: 760px) {{
+      form {{
+        grid-template-columns: 1fr;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="card">
+      <h1>邮件浏览器</h1>
+      <p>输入完整邮箱后，可以直接查看最近邮件列表，再点进去打开 HTML 邮件页面。</p>
+      {notice_html}
+      <form method="get" action="/api">
+        <input type="hidden" name="ui" value="browser">
+        <div>
+          <label for="email">完整邮箱</label>
+          <input id="email" name="email" type="text" value="{html.escape(lookup_email)}" placeholder="name@outlook.com" required>
+        </div>
+        <div>
+          <label for="limit">最近几封</label>
+          <input id="limit" name="limit" type="number" min="1" max="{self.MAX_EMAIL_LIMIT}" value="{limit}">
+        </div>
+        <button class="primary" type="submit">刷新列表</button>
+      </form>
+      <div class="actions" style="margin-top:14px;">
+        <a class="button ghost" href="/">返回管理台</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>邮件列表</h2>
+      {list_html}
+    </section>
+  </div>
+</body>
+</html>"""
+        self._send_html(page, 200)
+
+    def _render_message_page(self, query):
+        if not self._request_is_authorized(query):
+            self._redirect("/?error=unauthorized")
+            return
+
+        lookup_email = self._query_email_key(query)
+        requested_mail_id = self._query_mail_id(query)
+        if not lookup_email or not requested_mail_id:
+            self._send_html("<h1>缺少 email 或 mail_id 参数</h1>", 400)
+            return
+
+        record = self._load_credential_record(lookup_email)
+        if not record:
+            self._send_html("<h1>未找到对应邮箱凭证</h1>", 404)
+            return
+
+        emails = self._fetch_emails(
+            record,
+            1,
+            query,
+            response_mode="processed",
+            mail_id=requested_mail_id,
+            force_compact=False,
+        )
+        if not emails:
+            self._send_html("<h1>未找到对应邮件</h1>", 404)
+            return
+
+        email_item = emails[0]
+        iframe_doc = self._message_iframe_document(
+            email_item.get("body_html", ""),
+            email_item.get("body", ""),
+        )
+        raw_url = self._raw_email_url(lookup_email, requested_mail_id)
+        api_url = self._processed_email_url(lookup_email, requested_mail_id)
+        browser_url = self._browser_page_url(lookup_email, self._parse_limit(query, default=10))
+
+        page = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(email_item.get("subject") or "邮件详情")}</title>
+  <style>
+    :root {{
+      --ink: #1c2430;
+      --muted: #5b6672;
+      --accent: #cd5a2a;
+      --accent-dark: #8f3414;
+      --line: rgba(28, 36, 48, 0.12);
+      --bg: #f6efe3;
+      --panel: rgba(255,255,255,0.94);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(205, 90, 42, 0.22), transparent 20%),
+        linear-gradient(180deg, #f8f3ea, #f1eadc);
+      min-height: 100vh;
+      padding: 22px 14px 32px;
+    }}
+    .shell {{
+      width: min(1240px, 100%);
+      margin: 0 auto;
+    }}
+    .card {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 22px;
+      box-shadow: 0 22px 60px rgba(41, 31, 18, 0.1);
+      margin-bottom: 18px;
+    }}
+    h1 {{
+      margin: 0 0 12px;
+      font-size: clamp(26px, 4vw, 40px);
+      line-height: 1.1;
+    }}
+    p {{
+      margin: 0 0 12px;
+      color: var(--muted);
+      line-height: 1.7;
+    }}
+    .actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }}
+    a.button {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      color: var(--ink);
+      background: rgba(28,36,48,0.06);
+    }}
+    a.button.primary {{
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+    }}
+    .meta-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }}
+    .meta-block {{
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(246, 239, 227, 0.72);
+    }}
+    .meta-block strong {{
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }}
+    iframe {{
+      width: 100%;
+      min-height: 78vh;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: white;
+    }}
+    code {{
+      display: block;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(28,36,48,0.06);
+      word-break: break-all;
+      font-size: 13px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="card">
+      <h1>{html.escape(email_item.get("subject") or "无标题邮件")}</h1>
+      <p>这里会直接渲染邮件的 HTML 正文。上面保留了原始接口链接，方便你随时切回 JSON 调试。</p>
+      <div class="meta-grid">
+        <div class="meta-block">
+          <strong>发件人</strong>
+          <div>{html.escape(email_item.get("from") or "")}</div>
+        </div>
+        <div class="meta-block">
+          <strong>收件人</strong>
+          <div>{html.escape(email_item.get("to") or "")}</div>
+        </div>
+        <div class="meta-block">
+          <strong>时间</strong>
+          <div>{html.escape(email_item.get("date") or "")}</div>
+        </div>
+        <div class="meta-block">
+          <strong>邮件 ID</strong>
+          <div>{html.escape(email_item.get("id") or "")}</div>
+        </div>
+      </div>
+      <div class="actions">
+        <a class="button" href="{html.escape(browser_url)}">返回邮件列表</a>
+        <a class="button" href="{html.escape(api_url)}" target="_blank" rel="noreferrer">整理后 JSON</a>
+        <a class="button primary" href="{html.escape(raw_url)}" target="_blank" rel="noreferrer">原始 JSON</a>
+      </div>
+      <code>{html.escape(raw_url)}</code>
+    </section>
+    <section class="card">
+      <iframe sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" srcdoc="{html.escape(iframe_doc, quote=True)}"></iframe>
+    </section>
+  </div>
+</body>
+</html>"""
         self._send_html(page, 200)
 
     def _read_body(self):
@@ -735,17 +1178,38 @@ class handler(BaseHTTPRequestHandler):
             return "<p>还没有保存任何凭证。</p>"
 
         blocks = []
-        encoded_password = urllib.parse.quote(self._admin_password(), safe="") or "你的密码"
         for lookup_email in items:
             escaped_email = html.escape(lookup_email)
-            url = f"{self._lookup_base_url()}?password={encoded_password}&email={urllib.parse.quote(lookup_email, safe='')}"
+            processed_url = self._processed_email_url(lookup_email)
+            raw_url = self._raw_email_url(lookup_email)
+            browser_url = self._browser_page_url(lookup_email, 10)
             blocks.append(
-                f'<li class="saved-item"><strong>{escaped_email}</strong><code>{html.escape(url)}</code></li>'
+                f'<li class="saved-item"><strong>{escaped_email}</strong>'
+                f'<div class="action-row">'
+                f'<a class="chip-link" href="{html.escape(browser_url)}">浏览邮件</a>'
+                f'<a class="chip-link" href="{html.escape(processed_url)}" target="_blank" rel="noreferrer">整理 JSON</a>'
+                f'<a class="chip-link" href="{html.escape(raw_url)}" target="_blank" rel="noreferrer">原始 JSON</a>'
+                f"</div>"
+                f'<code>{html.escape(processed_url)}</code>'
+                f'<code>{html.escape(raw_url)}</code>'
+                f"</li>"
             )
         return f'<ul class="saved-list">{"".join(blocks)}</ul>'
 
-    def _fetch_latest_emails(self, record, limit, query):
-        compact = self._query_flag(query, "compact", "simple")
+    def _fetch_emails(
+        self,
+        record,
+        limit,
+        query,
+        response_mode="processed",
+        mail_id="",
+        force_compact=None,
+    ):
+        compact = (
+            self._query_flag(query, "compact", "simple")
+            if force_compact is None
+            else force_compact
+        )
         include_raw = self._query_flag(query, "raw", "include_raw")
         access_token = self._exchange_access_token(record)
         ssl_context = ssl._create_unverified_context()
@@ -766,7 +1230,10 @@ class handler(BaseHTTPRequestHandler):
                 raise RuntimeError("邮件搜索失败")
 
             mail_ids = [item for item in messages[0].split() if item]
-            latest_ids = list(reversed(mail_ids[-limit:]))
+            if mail_id:
+                latest_ids = [mail_id.encode("utf-8")]
+            else:
+                latest_ids = list(reversed(mail_ids[-limit:]))
             results = []
 
             for num in latest_ids:
@@ -785,36 +1252,25 @@ class handler(BaseHTTPRequestHandler):
                 from_entry = self._parse_address_header(raw_from)
                 to_list = self._parse_address_list(raw_to)
                 cc_list = self._parse_address_list(raw_cc)
-
-                email_item = {
-                    "id": num.decode("utf-8", errors="ignore"),
-                    "message_id": message.get("Message-ID", ""),
-                    "date": message.get("Date"),
-                    "date_iso": self._date_to_iso(message.get("Date")),
-                    "from": raw_from,
-                    "from_name": from_entry["name"],
-                    "from_email": from_entry["email"],
-                    "to": raw_to,
-                    "to_list": to_list,
-                    "cc": raw_cc,
-                    "cc_list": cc_list,
-                    "title": subject,
-                    "subject": subject,
-                    "preview": self._preview_text(body_text),
-                    "body": body_text,
-                    "body_text": body_text,
-                    "has_html": bool(body_html),
-                }
-
-                if not compact:
-                    email_item["body_html"] = body_html
-
-                if include_raw:
-                    email_item["body_text_raw"] = raw_body_text
-                    if compact:
-                        email_item["body_html_raw"] = body_html
-
-                results.append(email_item)
+                results.append(
+                    self._build_email_item(
+                        num.decode("utf-8", errors="ignore"),
+                        message,
+                        subject,
+                        raw_from,
+                        raw_to,
+                        raw_cc,
+                        from_entry,
+                        to_list,
+                        cc_list,
+                        body_text,
+                        raw_body_text,
+                        body_html,
+                        compact,
+                        include_raw,
+                        response_mode,
+                    )
+                )
 
             return results
         finally:
@@ -822,6 +1278,68 @@ class handler(BaseHTTPRequestHandler):
                 mail.logout()
             except Exception:
                 pass
+
+    def _build_email_item(
+        self,
+        message_id,
+        message,
+        subject,
+        raw_from,
+        raw_to,
+        raw_cc,
+        from_entry,
+        to_list,
+        cc_list,
+        body_text,
+        raw_body_text,
+        body_html,
+        compact,
+        include_raw,
+        response_mode,
+    ):
+        if response_mode == "raw":
+            return {
+                "id": message_id,
+                "message_id": message.get("Message-ID", ""),
+                "date": message.get("Date"),
+                "from": raw_from,
+                "to": raw_to,
+                "cc": raw_cc,
+                "title": subject,
+                "subject": subject,
+                "body_text": raw_body_text,
+                "body_html": body_html,
+            }
+
+        email_item = {
+            "id": message_id,
+            "message_id": message.get("Message-ID", ""),
+            "date": message.get("Date"),
+            "date_iso": self._date_to_iso(message.get("Date")),
+            "from": raw_from,
+            "from_name": from_entry["name"],
+            "from_email": from_entry["email"],
+            "to": raw_to,
+            "to_list": to_list,
+            "cc": raw_cc,
+            "cc_list": cc_list,
+            "title": subject,
+            "subject": subject,
+            "preview": self._preview_text(body_text),
+            "body": body_text,
+            "body_text": body_text,
+            "has_html": bool(body_html),
+        }
+
+        if not compact:
+            email_item["body_html"] = body_html
+
+        if include_raw:
+            email_item["body_text_raw"] = raw_body_text
+            if compact:
+                email_item["body_html_raw"] = body_html
+
+        return email_item
 
     def _exchange_access_token(self, record):
         payload = urllib.parse.urlencode(
@@ -941,6 +1459,12 @@ class handler(BaseHTTPRequestHandler):
     def _query(self):
         return urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
 
+    def _wants_mailbox_page(self, query):
+        return (query.get("ui") or [""])[0].strip().lower() == "browser"
+
+    def _wants_message_page(self, query):
+        return (query.get("ui") or [""])[0].strip().lower() == "message"
+
     def _wants_email_json(self, query):
         return bool(self._query_email_key(query))
 
@@ -948,14 +1472,17 @@ class handler(BaseHTTPRequestHandler):
         candidate = (query.get("email") or [""])[0] or (query.get("suffix") or [""])[0]
         return self._normalize_email_address(candidate)
 
-    def _parse_limit(self, query):
+    def _query_mail_id(self, query):
+        return ((query.get("mail_id") or [""])[0] or (query.get("id") or [""])[0]).strip()
+
+    def _parse_limit(self, query, default=1):
         raw_value = (
             (query.get("limit") or [""])[0]
             or (query.get("count") or [""])[0]
             or (query.get("params") or [""])[0]
         )
         if not raw_value:
-            return 1
+            return default
 
         try:
             limit = int(raw_value)
@@ -1218,6 +1745,85 @@ class handler(BaseHTTPRequestHandler):
         proto = self.headers.get("X-Forwarded-Proto", "https")
         host = self.headers.get("Host", "")
         return f"{proto}://{host}/api"
+
+    def _raw_lookup_base_url(self):
+        return f"{self._lookup_base_url()}/raw"
+
+    def _processed_email_url(self, lookup_email, mail_id=""):
+        encoded_password = urllib.parse.quote(self._admin_password(), safe="") or "你的密码"
+        query = f"password={encoded_password}&email={urllib.parse.quote(lookup_email, safe='')}"
+        if mail_id:
+            query += f"&mail_id={urllib.parse.quote(mail_id, safe='')}"
+        return f"{self._lookup_base_url()}?{query}"
+
+    def _raw_email_url(self, lookup_email, mail_id=""):
+        encoded_password = urllib.parse.quote(self._admin_password(), safe="") or "你的密码"
+        query = f"password={encoded_password}&email={urllib.parse.quote(lookup_email, safe='')}"
+        if mail_id:
+            query += f"&mail_id={urllib.parse.quote(mail_id, safe='')}"
+        return f"{self._raw_lookup_base_url()}?{query}"
+
+    def _browser_page_url(self, lookup_email, limit=10):
+        query = urllib.parse.urlencode(
+            {"ui": "browser", "email": lookup_email, "limit": str(limit)}
+        )
+        return f"/api?{query}"
+
+    def _message_page_url(self, lookup_email, mail_id, limit=10):
+        query = urllib.parse.urlencode(
+            {
+                "ui": "message",
+                "email": lookup_email,
+                "mail_id": str(mail_id),
+                "limit": str(limit),
+            }
+        )
+        return f"/api?{query}"
+
+    def _mailbox_list_html(self, lookup_email, emails, limit):
+        if not emails:
+            return "<p>这个邮箱里暂时没有查到邮件。</p>"
+
+        blocks = []
+        for item in emails:
+            subject = html.escape(item.get("subject") or "无标题邮件")
+            from_value = html.escape(item.get("from") or "")
+            date_value = html.escape(item.get("date") or "")
+            preview = html.escape(item.get("preview") or "")
+            message_url = self._message_page_url(lookup_email, item.get("id", ""), limit)
+            processed_url = self._processed_email_url(lookup_email, item.get("id", ""))
+            raw_url = self._raw_email_url(lookup_email, item.get("id", ""))
+            blocks.append(
+                f'<li class="mail-item">'
+                f"<h3>{subject}</h3>"
+                f'<div class="meta">发件人：{from_value}</div>'
+                f'<div class="meta">时间：{date_value}</div>'
+                f"<p>{preview}</p>"
+                f'<div class="actions">'
+                f'<a class="button primary" href="{html.escape(message_url)}">查看 HTML</a>'
+                f'<a class="button ghost" href="{html.escape(processed_url)}" target="_blank" rel="noreferrer">整理 JSON</a>'
+                f'<a class="button ghost" href="{html.escape(raw_url)}" target="_blank" rel="noreferrer">原始 JSON</a>'
+                f"</div>"
+                f"</li>"
+            )
+        return f'<ul class="mail-list">{"".join(blocks)}</ul>'
+
+    def _message_iframe_document(self, body_html, fallback_text):
+        if body_html and "<html" in body_html.lower():
+            document = body_html
+        else:
+            html_body = (
+                body_html
+                if body_html
+                else f"<pre>{html.escape(fallback_text or '这封邮件没有 HTML 正文')}</pre>"
+            )
+            document = (
+                "<!doctype html><html><head><meta charset='utf-8'>"
+                "<base target='_blank'>"
+                "<style>body{margin:0;padding:16px;font-family:Arial,sans-serif;background:#fff;color:#111;}pre{white-space:pre-wrap;word-break:break-word;}</style>"
+                f"</head><body>{html_body}</body></html>"
+            )
+        return document
 
     def _notice(self, text, kind="success"):
         safe_kind = "error" if kind == "error" else "success"
